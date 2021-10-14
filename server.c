@@ -45,8 +45,7 @@ int main() {
 
 	len = sizeof(cliaddr); //len is value/resuslt
 
-	n = recvfrom(sockfd, (char *)buffer, MAXLINE,
-				MSG_WAITALL, ( struct sockaddr *) &cliaddr, (socklen_t*) &len);
+	n = recvfrom(sockfd, (char *)buffer, MAXLINE, MSG_WAITALL, ( struct sockaddr *) &cliaddr, (socklen_t*) &len);
 	buffer[n] = '\0';
 	printf("Client : %s\n", buffer);
 	sendto(sockfd, (const char *)hello, strlen(hello),

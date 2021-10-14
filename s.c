@@ -53,8 +53,7 @@ int socketSetup(int myPort, struct hostent *remoteMachine,int remotePort){
 	hostaddr.sin_port = htons(myPort);
 
 	cliaddr.sin_family = AF_INET;
-	//cliaddr.sin_addr = *(struct in_addr*)remoteMachine->h_addr;
-	cliaddr.sin_addr.s_addr = INADDR_ANY;
+	cliaddr.sin_addr = *(struct in_addr*)remoteMachine->h_addr;
 	cliaddr.sin_port = htons(remotePort);
 	
 	memset(&hostaddr, 0, sizeof(hostaddr));
@@ -79,10 +78,11 @@ void inputData() {
 }
 
 void sendData() {
-	char* msg = (char*) ListTrim(inputList);
+	//char* msg = (char*) ListTrim(inputList);
+    char* msg = "hello";
 	sendto(sockfd, msg, strlen(msg),MSG_CONFIRM, (const struct sockaddr *) &cliaddr,sizeof(cliaddr));
 	printf("message sent: %s \n", msg);
-	free(msg);
+	//free(msg);
 	// add null check for msg
 }
 
@@ -112,12 +112,7 @@ int main(int argc, char *argv[]){
 	// Initializes socket
 	socketSetup(myPort, remoteMachine, remotePort);
 
-	inputData();
-	inputData();
 	sendData();
-	sendData();
-	receiveData();
-	receiveData();
 	// printList(inputList);
 	close(sockfd);
     return 0;

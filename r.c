@@ -67,6 +67,11 @@ int socketSetup(int myPort, struct hostent *remoteMachine,int remotePort){
 		exit(EXIT_FAILURE);
 	}
 	printf("binded succesfully\n");
+
+    printf("starting rData\n");
+	char buffer[MAXSIZE];
+	int data = recvfrom(sockfd, (char*) buffer, MAXSIZE, MSG_WAITALL, (struct sockaddr *) &cliaddr, (socklen_t*) sizeof(cliaddr));
+	printf("message received: %s \n", buffer);
 }
 
 void inputData() {
@@ -87,6 +92,7 @@ void sendData() {
 }
 
 void receiveData() {
+    printf("starting rData\n");
 	char buffer[MAXSIZE];
 	int data = recvfrom(sockfd, (char*) buffer, MAXSIZE, MSG_WAITALL, (struct sockaddr *) &cliaddr, (socklen_t*) sizeof(cliaddr));
 	printf("message received: %s \n", buffer);
@@ -112,12 +118,7 @@ int main(int argc, char *argv[]){
 	// Initializes socket
 	socketSetup(myPort, remoteMachine, remotePort);
 
-	inputData();
-	inputData();
-	sendData();
-	sendData();
-	receiveData();
-	receiveData();
+	//receiveData();
 	// printList(inputList);
 	close(sockfd);
     return 0;
