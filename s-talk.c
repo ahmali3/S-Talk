@@ -1,4 +1,3 @@
-// Server side implementation of UDP client-server model
 #include "list.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +18,11 @@ struct sockaddr_in hostaddr;
 struct sockaddr_in cliaddr;
 LIST* inputList;
 LIST* outputList;
+
+pthread_mutex_t csMutex;
+pthread_cond_t notEmpty;
+
+char test[5] = "hello";
 
 //NOTE: Add error handling for send, rec, and bind
 
@@ -42,20 +46,20 @@ LIST* outputList;
 int socketSetup(int myPort, struct hostent *remoteMachine,int remotePort){
 	
 	// Creating socket file descriptor
-	if ( (sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) {
+	if ( (sockfd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0)) < 0 ) {
 		perror("socket creation failed");
 		exit(EXIT_FAILURE);
 	}
-	
+
 	// Filling server information
 	hostaddr.sin_family = AF_INET;
 	hostaddr.sin_addr.s_addr = INADDR_ANY;
 	hostaddr.sin_port = htons(myPort);
 
 	cliaddr.sin_family = AF_INET;
-	//cliaddr.sin_addr = *(struct in_addr*)remoteMachine->h_addr;
-	cliaddr.sin_addr.s_addr = INADDR_ANY;
-	cliaddr.sin_port = htons(remotePort);
+	cliaddr.sin_addr = *(struct in_addr*)remoteMachine->h_addr;
+	//cliaddr.sin_addr.s_addr = INADDR_ANY;
+	cliaddr.sin_port = ntohs(remotePort);
 	
 	memset(&hostaddr, 0, sizeof(hostaddr));
 	memset(&cliaddr, 0, sizeof(cliaddr));
@@ -69,27 +73,69 @@ int socketSetup(int myPort, struct hostent *remoteMachine,int remotePort){
 	printf("binded succesfully\n");
 }
 
-void inputData() {
+void *inputData() {
 	char buffer[MAXSIZE];
+
+	while(true) {
+
 	ssize_t size = read(STDIN_FILENO, buffer, MAXSIZE - 1);
 	buffer[size++] = '\0';
+
 	char *msg = malloc(sizeof(char) * size);
 	memcpy(msg, buffer, size);
+
+	pthread_mutex_lock(&csMutex);
 	ListPrepend(inputList, msg);
+	pthread_mutex_unlock(&csMutex);
+	}
 }
 
-void sendData() {
+void *sendData() {
+	while (true) {
+		pthread_mutex_lock(&csMutex);
+        while (ListCount(inputList) == 0)
+        {
+            pthread_cond_wait(&notEmpty, &csMutex);
+        }
+
+	    if(ListCount(inputList) == 0)
+        {
+            continue;
+        }
 	char* msg = (char*) ListTrim(inputList);
-	sendto(sockfd, msg, strlen(msg),MSG_CONFIRM, (const struct sockaddr *) &cliaddr,sizeof(cliaddr));
+	pthread_mutex_unlock(&csMutex);
+	//sendto(sockfd, msg, strlen(msg), 0, (const struct sockaddr *) &cliaddr,sizeof(cliaddr));
+	sendto(sockfd, test, strlen(msg), 0, (const struct sockaddr *) &cliaddr,sizeof(cliaddr));
 	printf("message sent: %s \n", msg);
 	free(msg);
 	// add null check for msg
+	}
 }
 
-void receiveData() {
+static void displayListContents(char message[])
+{
+    //write the message in the list to the console
+    size_t messageSize = strlen(message)+1;
+    ssize_t allowedToWrite = write(STDOUT_FILENO,message,messageSize);
+
+    if(allowedToWrite == -1)
+    {
+        printf("Error has occurred writing to screen\n");
+        // pthread_mutex_destroy(&readMutex);
+        // pthread_cond_destroy(&sendListNotEmpty);
+        close(sockfd);
+        exit(-1);
+    }
+}
+
+void *receiveData() {
 	char buffer[MAXSIZE];
-	int data = recvfrom(sockfd, (char*) buffer, MAXSIZE, MSG_WAITALL, (struct sockaddr *) &cliaddr, (socklen_t*) sizeof(cliaddr));
-	printf("message received: %s \n", buffer);
+	while (true) {
+//	printf("message received started: %s \n", buffer);
+	int data = recvfrom(sockfd, (char*) buffer, MAXSIZE, 0, (struct sockaddr *) &cliaddr, (socklen_t*) sizeof(cliaddr));
+//	printf("message received ended: %s \n", buffer);
+	displayListContents(buffer);
+	}
 }
 
 int main(int argc, char *argv[]){
@@ -112,13 +158,34 @@ int main(int argc, char *argv[]){
 	// Initializes socket
 	socketSetup(myPort, remoteMachine, remotePort);
 
-	inputData();
-	inputData();
-	sendData();
-	sendData();
-	receiveData();
-	receiveData();
+	// Initializes threads
+    pthread_mutex_init(&csMutex,NULL);
+    pthread_cond_init(&notEmpty,NULL);
+
+	// Executing threads
+	pthread_t input, send, receive, print;
+
+	int inputThread = pthread_create(&input, NULL, inputData, NULL);
+	int sendThread = pthread_create(&send, NULL, sendData, NULL);
+	int rcvThread = pthread_create(&receive, NULL, receiveData, NULL);
+	//int printThread = pthread_create(&print, NULL, printData, NULL);
+	printf("testing 1\n");
+	// Joining threads
+	pthread_join(input, NULL);
+	pthread_join(send, NULL);
+	pthread_join(receive, NULL);
+	//pthread_join(print, NULL);
+
+	// inputData();
+	// inputData();
+	// sendData();
+	// sendData();
+	// receiveData();
+	// receiveData();
 	// printList(inputList);
+	printf("testing 2\n");
 	close(sockfd);
+	pthread_exit(NULL);
+
     return 0;
 }
