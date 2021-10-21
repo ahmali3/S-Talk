@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <netdb.h>
 #include <pthread.h>
+#include <errno.h>
 
 #define MAXSIZE 1024
 
@@ -21,8 +22,6 @@ LIST* outputList;
 
 pthread_mutex_t csMutex;
 pthread_cond_t notEmpty;
-
-char test[5] = "hello";
 
 //NOTE: Add error handling for send, rec, and bind
 
@@ -42,11 +41,10 @@ char test[5] = "hello";
 //     printf("\n");
 // }
 
-
 int socketSetup(int myPort, struct hostent *remoteMachine,int remotePort){
 	
 	// Creating socket file descriptor
-	if ( (sockfd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0)) < 0 ) {
+	if ( (sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) {
 		perror("socket creation failed");
 		exit(EXIT_FAILURE);
 	}
@@ -57,12 +55,12 @@ int socketSetup(int myPort, struct hostent *remoteMachine,int remotePort){
 	hostaddr.sin_port = htons(myPort);
 
 	cliaddr.sin_family = AF_INET;
-	cliaddr.sin_addr = *(struct in_addr*)remoteMachine->h_addr;
+	//cliaddr.sin_addr = *(struct in_addr*)remoteMachine->h_addr;
 	//cliaddr.sin_addr.s_addr = INADDR_ANY;
-	cliaddr.sin_port = ntohs(remotePort);
-	
+	cliaddr.sin_port = htons(remotePort);
 	memset(&hostaddr, 0, sizeof(hostaddr));
 	memset(&cliaddr, 0, sizeof(cliaddr));
+
 
 	// Bind the socket with the server address
 	if ( bind(sockfd, (const struct sockaddr *)&hostaddr, sizeof(hostaddr)) < 0 )
@@ -79,7 +77,8 @@ void *inputData() {
 	while(true) {
 
 	ssize_t size = read(STDIN_FILENO, buffer, MAXSIZE - 1);
-	buffer[size++] = '\0';
+	buffer[size] = '\0';
+	size++;
 
 	char *msg = malloc(sizeof(char) * size);
 	memcpy(msg, buffer, size);
@@ -87,6 +86,10 @@ void *inputData() {
 	pthread_mutex_lock(&csMutex);
 	ListPrepend(inputList, msg);
 	pthread_mutex_unlock(&csMutex);
+	
+	ssize_t test = sendto(sockfd, msg, strlen(msg), 0, (struct sockaddr *) &cliaddr, sizeof(struct sockaddr *));
+	printf("Oh dear, something went wrong with read()! %s %d\n", strerror(errno), errno);
+	printf("sendto = %ld\n", test);
 	}
 }
 
@@ -98,14 +101,10 @@ void *sendData() {
             pthread_cond_wait(&notEmpty, &csMutex);
         }
 
-	    if(ListCount(inputList) == 0)
-        {
-            continue;
-        }
 	char* msg = (char*) ListTrim(inputList);
 	pthread_mutex_unlock(&csMutex);
-	//sendto(sockfd, msg, strlen(msg), 0, (const struct sockaddr *) &cliaddr,sizeof(cliaddr));
-	sendto(sockfd, test, strlen(msg), 0, (const struct sockaddr *) &cliaddr,sizeof(cliaddr));
+	ssize_t test = sendto(sockfd, msg, strlen(msg), 0, (const struct sockaddr *) &cliaddr, sizeof(cliaddr));
+	printf("sendto = %ld\n", test);
 	printf("message sent: %s \n", msg);
 	free(msg);
 	// add null check for msg
@@ -165,20 +164,20 @@ int main(int argc, char *argv[]){
 	// Executing threads
 	pthread_t input, send, receive, print;
 
-	int inputThread = pthread_create(&input, NULL, inputData, NULL);
-	int sendThread = pthread_create(&send, NULL, sendData, NULL);
-	int rcvThread = pthread_create(&receive, NULL, receiveData, NULL);
+	//int inputThread = pthread_create(&input, NULL, inputData, NULL);
+	//int sendThread = pthread_create(&send, NULL, sendData, NULL);
+//	int rcvThread = pthread_create(&receive, NULL, receiveData, NULL);
 	//int printThread = pthread_create(&print, NULL, printData, NULL);
 	printf("testing 1\n");
 	// Joining threads
-	pthread_join(input, NULL);
-	pthread_join(send, NULL);
-	pthread_join(receive, NULL);
+	//pthread_join(input, NULL);
+	//pthread_join(send, NULL);
+	//pthread_join(receive, NULL);
 	//pthread_join(print, NULL);
 
+	 inputData();
 	// inputData();
-	// inputData();
-	// sendData();
+	 sendData();
 	// sendData();
 	// receiveData();
 	// receiveData();
