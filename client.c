@@ -39,8 +39,7 @@ int main() {
 			sizeof(servaddr));
 	printf("Hello message sent.\n");
 		
-	n = recvfrom(sockfd, (char *)buffer, MAXLINE,
-				MSG_WAITALL, (struct sockaddr *) &servaddr, (socklen_t*) &len);
+	n = recvfrom(sockfd, (char *)buffer, MAXLINE, MSG_WAITALL, (struct sockaddr *) &servaddr, (socklen_t*) &len);
 	buffer[n] = '\0';
 	printf("Server : %s\n", buffer);
 
