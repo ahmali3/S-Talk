@@ -186,7 +186,7 @@ void *receiveData()
 				ListFree(inputList, freeItem);
 				ListFree(outputList, freeItem);
 
-				printf("User has terminated the session\n");
+				printf("User has terminated the session.\n");
 
 				// Destroying mutexes and condition variables
 				pthread_mutex_unlock(&csMutex);
