@@ -19,37 +19,24 @@ struct sockaddr_in hostaddr;
 struct sockaddr_in cliaddr;
 LIST *inputList;
 LIST *outputList;
-
+const char terminate = '!';
+bool terminated = false;
+char output[MAXSIZE];
+pthread_mutex_t writeMutex;
+pthread_cond_t outNotEmpty;
 pthread_mutex_t csMutex;
 pthread_cond_t notEmpty;
 
-// NOTE: Add error handling for send, rec, and bind
-
-// Debugging Function
-// static void printList(LIST *pList)
-// {
-//     if (pList->mynodes == 0)
-//         printf("No values in the Node\n");
-//     LIST *temp = pList;
-//     temp->current = pList->first;
-//     for (int i = 0; i < temp->mynodes; i++)
-//     {
-//         printf(" %s \n", (char*)ListCurr(temp));
-//         temp->current++;
-//     }
-//     printf("\n");
-// }
-
+// Setting up the socket by creating it and binding it to the server
 int socketSetup(int myPort, struct hostent *remoteMachine, int remotePort)
 {
-
 	// Creating socket file descriptor
 	if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
 	{
 		perror("socket creation failed");
 		exit(EXIT_FAILURE);
 	}
-
+	
 	// Filling server information
 	hostaddr.sin_family = AF_INET;
 	hostaddr.sin_addr.s_addr = INADDR_ANY;
@@ -57,10 +44,7 @@ int socketSetup(int myPort, struct hostent *remoteMachine, int remotePort)
 
 	cliaddr.sin_family = AF_INET;
 	cliaddr.sin_addr = *(struct in_addr *)remoteMachine->h_addr;
-	// cliaddr.sin_addr.s_addr = INADDR_ANY;
 	cliaddr.sin_port = htons(remotePort);
-	// memset(&hostaddr, 0, sizeof(hostaddr));
-	//	memset(&cliaddr, 0, sizeof(cliaddr));
 
 	// Bind the socket with the server address
 	if (bind(sockfd, (const struct sockaddr *)&hostaddr, sizeof(hostaddr)) < 0)
@@ -71,12 +55,14 @@ int socketSetup(int myPort, struct hostent *remoteMachine, int remotePort)
 	printf("binded succesfully\n");
 }
 
+// Reads the input from the keyboard and adds it to a list
 void *inputData()
 {
+	// Used to temporarly store the input  
 	char buffer[MAXSIZE];
-
 	while (true)
 	{
+		// Reads the input from keyboard 
 		ssize_t size = read(STDIN_FILENO, buffer, MAXSIZE - 1);
 		buffer[size] = '\0';
 		size++;
@@ -88,9 +74,10 @@ void *inputData()
 
 		ListPrepend(inputList, msg);
 
+		// If list is not empty then unblocks the thread that keeps
+		// track of if list is empty or not
 		if (ListCount(inputList) != 0)
 		{
-
 			pthread_cond_signal(&notEmpty);
 		}
 
@@ -98,54 +85,107 @@ void *inputData()
 	}
 }
 
+// Takes data off the list and sends it to remote client
 void *sendData()
 {
 	while (true)
 	{
 		pthread_mutex_lock(&csMutex);
+
+		// Waits until the the list is not empty
 		while (ListCount(inputList) == 0)
 		{
 			pthread_cond_wait(&notEmpty, &csMutex);
 		}
 
+		// Trims a message off the list to be sent
 		char *msg = (char *)ListTrim(inputList);
 		pthread_mutex_unlock(&csMutex);
 
+		// Sends the message to remote client
 		int len = sizeof(cliaddr);
 		ssize_t test = sendto(sockfd, (const char *)msg, strlen(msg), 0, (const struct sockaddr *)&cliaddr, len);
 		if (test == -1)
 		{
 			printf("Oh dear, something went wrong with read()! %s %d\n", strerror(errno), errno);
 		}
+
+		// Checks if either user has terminated the session by sending '!'
+		void *hasTerminated = memchr(msg, terminate, strlen(msg));
+		if (hasTerminated != NULL)
+		{
+			terminated = true;
+			printf("A user has terminated the session.\n");
+			close(sockfd);
+			exit(1);
+		}
+		// Dealloacates the memory for msg
 		free(msg);
-		// add null check for msg
 	}
 }
 
-static void displayListContents(char message[])
-{
-	// write the message in the list to the console
-	size_t messageSize = strlen(message) + 1;
-	ssize_t allowedToWrite = write(STDOUT_FILENO, message, messageSize);
-
-	if (allowedToWrite == -1)
-	{
-		printf("Error has occurred writing to screen\n");
-		// pthread_mutex_destroy(&readMutex);
-		// pthread_cond_destroy(&sendListNotEmpty);
-		close(sockfd);
-		exit(-1);
-	}
-}
-
+// Recieves the data sent from remote client and puts in onto a list
 void *receiveData()
 {
 	char buffer[MAXSIZE];
+	socklen_t socklen = sizeof(cliaddr);
 	while (true)
 	{
-		int data = recvfrom(sockfd, (char *)buffer, MAXSIZE, 0, (struct sockaddr *)&cliaddr, (socklen_t *)sizeof(cliaddr));
-		printf("message received ended: %s \n", buffer);
-		// displayListContents(buffer);
+		if (terminated)
+		{
+			pthread_exit(NULL);
+		}
+		else
+		{
+			// takes the data sent to it
+			ssize_t data = recvfrom(sockfd, buffer, MAXSIZE, 0, (struct sockaddr *)&cliaddr, &socklen);
+
+			char *readData = malloc(sizeof(char) * data);
+			memcpy(readData, buffer, data);
+
+			pthread_mutex_lock(&writeMutex);
+			
+			ListPrepend(outputList, readData);
+			if (ListCount(outputList) != 0)
+			{
+				pthread_cond_signal(&outNotEmpty);
+			}
+
+			pthread_mutex_unlock(&writeMutex);
+
+			// pthread_mutex_unlock(&writeMutex);
+			void *hasTerminated = memchr(readData, terminate, strlen(readData));
+			if (hasTerminated != NULL)
+			{
+				terminated = true;
+				printf("A user has terminated the session.\n");
+				close(sockfd);
+				exit(1);
+			}
+		}
+	}
+}
+
+// Takes each message off from the list and and outputs it to the screen
+void *printData(){
+	while (true)
+	{
+		if(terminated)
+        {
+            pthread_exit(NULL);
+        }
+		pthread_mutex_lock(&writeMutex);
+
+		while(ListCount(outputList) == 0){
+			pthread_cond_wait(&outNotEmpty, &writeMutex);
+		}
+		char *outputMessage = ListTrim(outputList);
+		size_t outputSize = strlen(outputMessage);
+
+		pthread_mutex_unlock(&writeMutex);
+
+		ssize_t writeOutput = write(STDOUT_FILENO, outputMessage, outputSize);
+		free(outputMessage);
 	}
 }
 
@@ -162,8 +202,37 @@ int main(int argc, char *argv[])
 	int myPort = atoi(argv[1]);
 	int remotePort = atoi(argv[3]);
 	struct hostent *remoteMachine;
-	remoteMachine = gethostbyname(argv[2]);
+	struct in_addr **addr_list;
+	
+	// struct addrinfo hints, *res, *p;
+    // int status;
+    // char ipstr[INET6_ADDRSTRLEN];
+	// char hostname[128];
+    // if (argc != 4) {
+    //     fprintf(stderr,"usage: showip hostname\n");
+    //     return 1;
+    // }
+    // memset(&hints, 0, sizeof hints);
+    // hints.ai_family = AF_UNSPEC; // AF_INET or AF_INET6 to force version
+    // hints.ai_socktype = SOCK_STREAM;
+    // if ((status = getaddrinfo(argv[1], NULL, &hints, &res)) != 0) {
+    //     fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
+    //     return 2;
+    // }
+	// gethostname(hostname, sizeof(hostname));
+	// printf("Your Remote Machine: %s\n", hostname);
 
+	char hostname[128];
+	remoteMachine = gethostbyname(argv[2]);
+	if (remoteMachine == NULL)
+	{
+		herror("Wrong hostname");
+		return 2;
+	}
+	gethostname(hostname, sizeof(hostname));
+	printf("Your Remote Machine: %s\n", hostname);
+	printf("Other User's Remote Machine: %s\n", remoteMachine->h_name);
+	
 	// Initialize lists
 	inputList = ListCreate();
 	outputList = ListCreate();
@@ -174,6 +243,8 @@ int main(int argc, char *argv[])
 	// Initializes threads
 	pthread_mutex_init(&csMutex, NULL);
 	pthread_cond_init(&notEmpty, NULL);
+	pthread_mutex_init(&writeMutex, NULL);
+	pthread_cond_init(&outNotEmpty, NULL);
 
 	// Executing threads
 	pthread_t input, send, receive, print;
@@ -181,13 +252,13 @@ int main(int argc, char *argv[])
 	int inputThread = pthread_create(&input, NULL, inputData, NULL);
 	int sendThread = pthread_create(&send, NULL, sendData, NULL);
 	int rcvThread = pthread_create(&receive, NULL, receiveData, NULL);
-	//	int printThread = pthread_create(&print, NULL, printData, NULL);
+	int printThread = pthread_create(&print, NULL, printData, NULL);
 
 	// Joining threads
 	pthread_join(input, NULL);
 	pthread_join(send, NULL);
 	pthread_join(receive, NULL);
-	// pthread_join(print, NULL);
+	pthread_join(print, NULL);
 
 	close(sockfd);
 	pthread_exit(NULL);
