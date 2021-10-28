@@ -5,6 +5,7 @@
         "string.h": "c",
         "unistd.h": "c",
         "list.h": "c",
-        "in.h": "c"
+        "in.h": "c",
+        "errno.h": "c"
     }
 }
